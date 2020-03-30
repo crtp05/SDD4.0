@@ -14,12 +14,13 @@ from . import label_map_util
 # # score threshold for showing bounding boxes.
 # _score_thresh = 0.27
 
-MODEL_NAME = 'hand_inference_graph'
 # Path to frozen detection graph.
 # This is the actual model that is used for the object detection.
-PATH_TO_CKPT = MODEL_NAME + '/frozen_inference_graph_2.pb'
+ABS_PATH = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(ABS_PATH, 'SDD4.0/server/api/hand_inference_graph/')
+PATH_TO_CKPT = os.path.join(ABS_PATH, 'frozen_inference_graph_2.pb')
 # List of the strings that is used to add correct label for each box.
-PATH_TO_LABELS = os.path.join(MODEL_NAME, 'hand_label_map.pbtxt')
+PATH_TO_LABELS = os.path.join(ABS_PATH, 'hand_label_map.pbtxt')
 
 NUM_CLASSES = 1
 # load label map
@@ -36,12 +37,12 @@ def load_inference_graph():
     print("loading HAND frozen graph into memory")
     detection_graph = tf.Graph()
     with detection_graph.as_default():
-        od_graph_def = tf.GraphDef()
-        with tf.gfile.GFile(PATH_TO_CKPT, 'rb') as fid:
+        od_graph_def = tf.compat.v1.GraphDef()
+        with tf.io.gfile.GFile(PATH_TO_CKPT, 'rb') as fid:
             serialized_graph = fid.read()
             od_graph_def.ParseFromString(serialized_graph)
             tf.import_graph_def(od_graph_def, name='')
-        sess = tf.Session(graph=detection_graph)
+        sess = tf.compat.v1.Session(graph=detection_graph)
     print("Hand Inference graph loaded.")
     return detection_graph, sess
 
@@ -50,7 +51,6 @@ def load_inference_graph():
 # You can modify this to also draw a label.
 def draw_box_on_image(num_hands_detect, score_thresh,
                       scores, boxes, im_width, im_height, image_np):
-    # 存储检测到的矩形框和得分
     boxes_ret = []
     scores_ret = []
     for i in range(num_hands_detect):
@@ -61,13 +61,6 @@ def draw_box_on_image(num_hands_detect, score_thresh,
                                           boxes[i][2] * im_height)
             boxes_ret.append((left, right, top, bottom))
             scores_ret.append(scores[i])
-            p1 = (int(left), int(top))
-            p2 = (int(right), int(bottom))
-            # cv2.rectangle(image_np, p1, p2, (77, 255, 9), 2, 1)  # 矩形框出手部
-            # cv2.putText(image_np, str(float('%.2f' % scores[i])),
-            #             (int(left), int(top)-1),
-            #             cv2.FONT_HERSHEY_SIMPLEX, 0.75,
-            #             (77, 255, 9), 2)  # 显示得分
     return boxes_ret, scores_ret
 
 

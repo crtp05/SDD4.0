@@ -1,12 +1,14 @@
 djangorestframework==3.9.2
 Django==2.1.7
 Pygments==2.3.1
-Markdown==3.1
 coreapi==2.3.3
 dj-database-url==0.5.0
-gunicorn==19.9.0
 django-cors-headers==3.2.1
 numpy
 tensorflow
+tensorflow-gpu
 opencv-python
 protobuf
+Keras
+Pillow
+argparse

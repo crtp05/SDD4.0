@@ -16,11 +16,11 @@ Including another URLconf
 from rest_framework.urlpatterns import format_suffix_patterns
 from django.contrib import admin
 from django.urls import path
-from api.views import get_tutorial, search, get_classifier
+from api.views import get_tutorial, search, get_classification
 from django.conf.urls import url
 
 urlpatterns = [
-    url(r'^main/$', get_classifier),
+    url(r'^main/$', get_classification),
     url(r'^tutorial/$', get_tutorial),
     url(r'^search/$', search),
 ]

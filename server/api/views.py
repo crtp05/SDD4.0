@@ -17,9 +17,10 @@ from .utils import detector_utils as detector_utils
 from .utils import recognizer_utils as recognizer_utils
 import os
 import numpy as np
-from keras.models import *
+from tensorflow.keras.models import model_from_json
 import time
 import shutil
+import base64
 
 
 # Links for each sign language picture to online image server
@@ -75,23 +76,23 @@ refersh_data = True
 letter = 'I'
 idx = 0
 
-def get_bbox(img_src):
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '-nhands',
-        '--num_hands',
-        dest='num_hands',
-        type=int,
-        default=1,
-        help='Max number of hands to detect.')
-    args = parser.parse_args()
+
+def get_bbox(img_src, detection_graph, sess, score_thresh):
+    """
+    get bouding box for the hand, basically checking if there is hand
+    :param img_src: 
+    :param detection_graph: 
+    :param sess: 
+    :param score_thresh: 
+    :return: True if there is hand, False if not
+    """
     if img_src is None:
         print('Load Fail')
     else:
         boxes, scores = detector_utils.detect_objects(
             img_src, detection_graph, sess)
         boxes_to_recog, scores_to_show = detector_utils.draw_box_on_image(
-            args.num_hands, score_thresh, scores, boxes,
+            1, score_thresh, scores, boxes,
             img_src.shape[1], img_src.shape[0], img_src)
         boxes_roi = boxes_to_recog
         if len(boxes_roi) > 0:
@@ -99,71 +100,62 @@ def get_bbox(img_src):
         else:
             return False
 
+
 def data_uri_to_cv2_img(uri):
+    """
+    convert uri to cv2 image
+    :param uri: 
+    :return: 
+    """
     encoded_data = uri.split(',')[1]
-    nparr = np.fromstring(encoded_data.decode('base64'), np.uint8)
+    nparr = np.fromstring(base64.b64decode(encoded_data), np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     return img
 
 @api_view(['GET', 'POST'])
 @renderer_classes([JSONRenderer, ])
-@parser_classes([MultiPartParser, FormParser])
-def get_classifier(request):
-    model_file = "./models/mobnet4f_cmu_adadelta_t1_model.pb"
+def get_classification(request):
+    """
+    get gesture classification
+    :param request:
+    :return:
+    """
+
+    # load frozen inference graph for hand detector
+    model_file = "/server/server/api/models/mobnet4f_cmu_adadelta_t1_model.pb"
     input_layer = "input_1"
     output_layer = "k2tfout_0"
-
     detection_graph, sess = detector_utils.load_inference_graph()
-    sess = tf.Session(graph=detection_graph)
+    sess = tf.compat.v1.Session(graph=detection_graph)
     score_thresh = 0.1
-
     stride = 4
     boxsize = 224
-
     estimator = Estimator(model_file, input_layer, output_layer)
-
-    # json_file = open('rec_model.json', 'r')
-    json_file = open('rec_model.json', 'r')
+    # load gesture classification model
+    json_file = open('/server/server/api/rec_model_new_3k.json', 'r')
     rec_model_json = json_file.read()
     json_file.close()
     rec_model = model_from_json(rec_model_json)
-    # rec_model.load_weights("rec_model_4epochs.h5")
-    rec_model.load_weights("rec_model_17epochs.h5")
+    rec_model.load_weights("/server/server/api/rec_model_new_3k13epochs.h5")
     print("Loaded rec model from disk")
 
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_BRIGHTNESS, 0.4)
 
-    paused = True
-    delay = {False: 1, True: 0}
-
-    k = 0
-
+    # if received request,
     if request.method == 'POST':
-        print(request.POST)
-        img_uri = str(request.POST.getlist("uri")[0])
+        print(request.data.get('uri'))
+        img_uri = request.data.get('uri')
         frame = data_uri_to_cv2_img(img_uri)
-        #frame = cv2.imread('img path')
-        tic = time.time()
-        if get_bbox(frame):
-
+        if get_bbox(frame, detection_graph, sess, score_thresh):
+            # resize input image to meet network input layer dimensions
             crop_res = cv2.resize(frame, (boxsize, boxsize))
             img, pad = preprocess(crop_res, boxsize, stride)
 
-            tic = time.time()
             hm = estimator.predict(img)
-            dt = time.time() - tic
 
             hm = cv2.resize(hm, (0, 0), fx=stride, fy=stride)
             bg = cv2.normalize(hm[:, :, -1], None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8UC1)
-            viz = cv2.normalize(np.sum(hm[:, :, :-1], axis=2), None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8UC1)
-
-            if generating_dataset:
-                cv2.imwrite('cust_data/{}/{}.jpg'.format(letter, idx), bg)
-                print(idx)
-
-            cv2.imwrite('msk/test/{}.jpg'.format(idx), bg)
-            cv2.imwrite('ori/test/{}.jpg'.format(idx), crop_res)
 
             im = cv2.cvtColor(bg, cv2.COLOR_GRAY2BGR)
             im = cv2.resize(im, (100, 100))
@@ -171,16 +163,9 @@ def get_classifier(request):
             result = rec_model.predict(im)
             # Gives the result
             result_letter = map_characters[np.argmax(result[0])]
-            frame = cv2.putText(frame, str(result_letter) + ' FPS:{}'.format(int(1/dt)), (50, 50), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 0, 255), 1)
-
-            idx += 1
+            # return the prediction
             return Response({'content': str(result_letter)})
         else:
-            bg = np.zeros((224, 224), np.int8)
-            viz = np.zeros((224, 224), np.int8)
-            viz.fill(255)
-            dt = time.time() - tic
-            frame = cv2.putText(frame, 'MOVE HAND TO CENTER PLEASE FPS:{}'.format(int(1/dt)), (50, 50), cv2.FONT_HERSHEY_COMPLEX, 0.5, (255, 255, 0), 1)
             return Response({'content': 'Please move hand to the center'})
 
     return Response()
@@ -195,11 +180,12 @@ def get_tutorial(request):
         'alphabets': alphabets
     })
 
+
 @api_view(['POST'])
 @renderer_classes([JSONRenderer, ])
 def search(request):
-    print(request.POST)
-    searchkey = str(request.POST.getlist("key")[0])
+    print(request.data)
+    searchkey = request.data.get("key")
     searchkey = searchkey.lower()
     res = []
     for c in searchkey:
